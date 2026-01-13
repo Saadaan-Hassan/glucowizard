@@ -14,8 +14,8 @@ class Report(models.Model):
     # JSONField: diabetic readings/values (your structure)
     diabetic_values = models.JSONField(default=dict)
 
-    # PDF upload
-    pdf_file = models.FileField(upload_to="reports/pdfs/", blank=True, null=True)
+    # PDF path or URL (stored in Supabase)
+    pdf_file = models.CharField(max_length=512, blank=True, null=True)
 
     # AI result (store text + raw JSON if you want)
     ai_summary_text = models.TextField(blank=True, default="")
