@@ -377,13 +377,23 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "{{baseUrl}}/reports/",
+							"raw": "{{baseUrl}}/reports/?page=1&page_size=10",
 							"host": [
 								"{{baseUrl}}"
 							],
 							"path": [
 								"reports",
 								""
+							],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "page_size",
+									"value": "10"
+								}
 							]
 						}
 					},

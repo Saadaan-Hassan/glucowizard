@@ -12,6 +12,7 @@ from glucowizard.supabase_client import get_supabase
 from .models import Report
 from .serializers import ReportCreateSerializer, ReportDetailSerializer, ReportListSerializer
 from .openai_client import get_client
+from .pagination import StandardResultsSetPagination
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
@@ -53,18 +54,32 @@ def report_stats(request):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def list_reports(request):
-    """List all reports for the authenticated user and generate signed URLs."""
+    """List all reports for the authenticated user and generate signed URLs with pagination."""
     reports = Report.objects.filter(user=request.user).order_by("-created_at")
+    
+    paginator = StandardResultsSetPagination()
+    page = paginator.paginate_queryset(reports, request)
+    
     supabase = get_supabase()
     supabase.auth.set_session(request.auth, "")
     
-    data = ReportListSerializer(reports, many=True).data
-    # Generate signed URLs for each report in the list (1-hour expiry)
+    if page is not None:
+        serializer = ReportListSerializer(page, many=True)
+        data = serializer.data
+        # Generate signed URLs for each report in the list
+        for report_data in data:
+            if report_data.get("pdf_file"):
+                signed_url_resp = supabase.storage.from_("reports").create_signed_url(report_data["pdf_file"], 3600)
+                report_data["pdf_url"] = signed_url_resp.get("signedURL") or signed_url_resp.get("signed_url")
+        return paginator.get_paginated_response(data)
+
+    serializer = ReportListSerializer(reports, many=True)
+    data = serializer.data
     for report_data in data:
         if report_data.get("pdf_file"):
             signed_url_resp = supabase.storage.from_("reports").create_signed_url(report_data["pdf_file"], 3600)
             report_data["pdf_url"] = signed_url_resp.get("signedURL") or signed_url_resp.get("signed_url")
-    
+            
     return Response(data)
 
 @api_view(["GET"])
