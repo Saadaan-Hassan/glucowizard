@@ -143,13 +143,24 @@ def create_report(request):
         content_parts.append({
             "type": "input_text",
             "text": (
-                "You are a clinical assistant. Summarize the patient's diabetic readings and the PDF.\n"
-                "Return:\n"
-                "1) a short summary\n"
-                "2) key abnormalities\n"
-                "3) recommendations\n"
-                "Also return a JSON object with fields: summary, abnormalities[], recommendations[].\n\n"
-                f"Diabetic JSON:\n{report.diabetic_values}"
+                "Analyze the following diabetes management data.\n\n"
+    "### Inputs Provided\n"
+    "- CGM report (time-series and summary statistics)\n"
+    "- Current insulin dosing parameters\n\n"
+    "### Tasks\n"
+    "1. Analyze CGM trends and glucose control patterns\n"
+    "2. Identify hyperglycemia, hypoglycemia, and variability issues\n"
+    "3. Provide clinically reasonable suggested adjustments for:\n"
+    "   - Bolus insulin ratio (insulin-to-carb)\n"
+    "   - Basal (balas) insulin rate\n"
+    "   - Correction factor (insulin sensitivity)\n\n"
+    "### Rules\n"
+    "- Suggestions must be conservative and expressed as ranges or directional changes\n"
+    "- Do NOT present recommendations as final prescriptions\n"
+    "- Clearly note when trends are uncertain or data is insufficient\n\n"
+ "Also return a JSON object with fields: summary, analysis[], recommendations[] and suggested_insulin_parameters of ballas ratio , bolousratio and correction_factor[].\n\n"
+    "### Current Insulin Parameters (JSON)\n"
+    f"{report.diabetic_values}"
             ),
         })
 
