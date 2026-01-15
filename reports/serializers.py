@@ -7,6 +7,12 @@ class ReportCreateSerializer(serializers.ModelSerializer):
         fields = ["id", "diabetic_values", "pdf_file", "created_at"]
         read_only_fields = ["id", "created_at"]
 
+class ReportListSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Report
+        fields = ["id", "pdf_file", "created_at"]
+        read_only_fields = ["id", "created_at"]
+
 class ReportDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = Report

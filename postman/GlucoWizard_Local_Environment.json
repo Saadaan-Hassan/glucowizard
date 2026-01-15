@@ -1,0 +1,21 @@
+{
+    "id": "e9f8d7c6-b5a4-9382-7160-5f4e3d2c1b0a",
+    "name": "GlucoWizard Local",
+    "values": [
+        {
+            "key": "baseUrl",
+            "value": "http://localhost:8000",
+            "type": "text",
+            "enabled": true
+        },
+        {
+            "key": "accessToken",
+            "value": "",
+            "type": "text",
+            "enabled": true
+        }
+    ],
+    "_postman_variable_scope": "environment",
+    "_postman_exported_at": "2026-01-12T13:37:18.000Z",
+    "_postman_exported_using": "Postman/10.0.0"
+}
