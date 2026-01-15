@@ -9,7 +9,7 @@ from django.utils import timezone
 from datetime import timedelta
 from django.shortcuts import get_object_or_404
 from glucowizard.supabase_client import get_supabase
-from .models import Report
+from .models import Report, AdminPrompt
 from .serializers import (
     ReportCreateSerializer,
     ReportDetailSerializer,
@@ -159,29 +159,38 @@ def create_report(request):
 
         content_parts = []
         # 1) Add diabetic values context
+        system_prompt = (
+            "Analyze the following diabetes management data.\n\n"
+            "### Inputs Provided\n"
+            "- CGM report (time-series and summary statistics)\n"
+            "- Current insulin dosing parameters\n\n"
+            "### Tasks\n"
+            "1. Analyze CGM trends and glucose control patterns\n"
+            "2. Identify hyperglycemia, hypoglycemia, and variability issues\n"
+            "3. Provide clinically reasonable suggested adjustments for:\n"
+            "   - Bolus insulin ratio (insulin-to-carb)\n"
+            "   - Basal (balas) insulin rate\n"
+            "   - Correction factor (insulin sensitivity)\n\n"
+            "### Rules\n"
+            "- Suggestions must be conservative and expressed as ranges or directional changes\n"
+            "- Do NOT present recommendations as final prescriptions\n"
+            "- Clearly note when trends are uncertain or data is insufficient\n\n"
+            "Also return a JSON object with fields: summary, analysis[], recommendations[] and suggested_insulin_parameters of ballas ratio , bolousratio and correction_factor[].\n\n"
+            "### Current Insulin Parameters (JSON)\n"
+            f"{report.diabetic_values}"
+        )
+
+        # Append admin instructions if available
+        active_admin_prompt = AdminPrompt.objects.filter(is_active=True).first()
+        if active_admin_prompt and active_admin_prompt.custom_instructions:
+            system_prompt += f"\n\n### Additional Instructions\n{active_admin_prompt.custom_instructions}"
+
+        print("system_prompt: ", system_prompt)
+
         content_parts.append(
             {
                 "type": "input_text",
-                "text": (
-                    "Analyze the following diabetes management data.\n\n"
-                    "### Inputs Provided\n"
-                    "- CGM report (time-series and summary statistics)\n"
-                    "- Current insulin dosing parameters\n\n"
-                    "### Tasks\n"
-                    "1. Analyze CGM trends and glucose control patterns\n"
-                    "2. Identify hyperglycemia, hypoglycemia, and variability issues\n"
-                    "3. Provide clinically reasonable suggested adjustments for:\n"
-                    "   - Bolus insulin ratio (insulin-to-carb)\n"
-                    "   - Basal (balas) insulin rate\n"
-                    "   - Correction factor (insulin sensitivity)\n\n"
-                    "### Rules\n"
-                    "- Suggestions must be conservative and expressed as ranges or directional changes\n"
-                    "- Do NOT present recommendations as final prescriptions\n"
-                    "- Clearly note when trends are uncertain or data is insufficient\n\n"
-                    "Also return a JSON object with fields: summary, analysis[], recommendations[] and suggested_insulin_parameters of ballas ratio , bolousratio and correction_factor[].\n\n"
-                    "### Current Insulin Parameters (JSON)\n"
-                    f"{report.diabetic_values}"
-                ),
+                "text": system_prompt,
             }
         )
 
