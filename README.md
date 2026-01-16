@@ -52,9 +52,8 @@ To deploy new changes from the repository:
 
 3. **Database Migrations**:
    ```bash
-   ./venv/bin/pip install -r requirements.txt
+   ./venv/bin/python manage.py migrate
    ```
-
 4. **Collect Static Files**:
    ```bash
    ./venv/bin/python manage.py collectstatic --no-input
