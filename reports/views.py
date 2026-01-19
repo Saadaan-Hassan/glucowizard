@@ -246,15 +246,19 @@ def create_report(request):
             )
 
         # Call OpenAI with proper model and error handling
-        # Using gpt-4o which is vision/file capable in the current SDK context
         try:
-            # Note: client.responses.create might be from a newer/beta SDK or custom implementation.
-            # Using chat.completions.create for better reliability unless the other is verified.
-            # However, matching the user's intent to use the PDF-capable endpoint.
             if hasattr(client, "responses"):
+                # The newer responses API expects "input_text" instead of "text"
+                response_content = []
+                for part in content_parts:
+                    p = part.copy()
+                    if p.get("type") == "text":
+                        p["type"] = "input_text"
+                    response_content.append(p)
+
                 resp = client.responses.create(
-                    model="gpt-4o",  # Updated from gpt-5.2
-                    input=[{"role": "user", "content": content_parts}],
+                    model="gpt-4o",
+                    input=[{"role": "user", "content": response_content}],
                 )
                 report.openai_response_id = getattr(resp, "id", "")
                 report.ai_summary_text = getattr(resp, "output_text", "") or ""

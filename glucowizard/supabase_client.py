@@ -7,8 +7,8 @@ def get_supabase() -> Client:
     if not url or not key:
         raise RuntimeError("SUPABASE_URL or SUPABASE_KEY not set")
     
-    # Ensure NO trailing slash here; the client library adds them
-    if url.endswith("/"):
-        url = url[:-1]
+    # Ensure a trailing slash; the storage client sometimes expects it
+    if not url.endswith("/"):
+        url += "/"
         
     return create_client(url, key)
