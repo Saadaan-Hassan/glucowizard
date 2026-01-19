@@ -167,6 +167,22 @@ def update_password(request):
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
+def logout(request):
+    """
+    Logs out the user by revoking their session in Supabase.
+    """
+    supabase = get_supabase()
+    # Use the current access token to set the session for the sign_out call
+    supabase.auth.set_session(request.auth, "")
+    try:
+        supabase.auth.sign_out()
+        return Response({"message": "Logged out successfully"})
+    except Exception as e:
+        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
 def change_password(request):
     """Change password by verifying old password first"""
     old_password = request.data.get("old_password")

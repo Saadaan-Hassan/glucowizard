@@ -1,8 +1,16 @@
 from django.urls import path
 from .views import (
-    register, login, refresh_token, 
-    forgot_password, update_password, change_password,
-    upload_avatar, google_auth, google_callback, me
+    register,
+    login,
+    refresh_token,
+    forgot_password,
+    update_password,
+    change_password,
+    logout,
+    upload_avatar,
+    google_auth,
+    google_callback,
+    me,
 )
 
 urlpatterns = [
@@ -10,6 +18,7 @@ urlpatterns = [
     path("google-callback/", google_callback),
     path("register/", register),
     path("login/", login),
+    path("logout/", logout),
     path("refresh-token/", refresh_token),
     path("forgot-password/", forgot_password),
     path("update-password/", update_password),
