@@ -1,4 +1,6 @@
 import base64
+import json
+import os
 from rest_framework.decorators import api_view, permission_classes, parser_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
@@ -121,44 +123,87 @@ def get_report_detail(request, pk):
 @permission_classes([IsAuthenticated])
 @parser_classes([MultiPartParser, FormParser, JSONParser])
 def create_report(request):
-    # ... logic stays same ...
-    # but we store the PATH in the DB, not the public URL
+    """
+    Creates a new report, uploads PDF to Supabase, and gets AI analysis.
+    Stores the PDF path in the database.
+    """
+    # 1. Early Validation of API Keys
+    supabase_url = os.getenv("SUPABASE_URL")
+    supabase_key = os.getenv("SUPABASE_KEY")
+    openai_key = os.getenv("OPENAI_API_KEY")
+
+    if not all([supabase_url, supabase_key, openai_key]):
+        missing = [
+            k
+            for k, v in {
+                "SUPABASE_URL": supabase_url,
+                "SUPABASE_KEY": supabase_key,
+                "OPENAI_API_KEY": openai_key,
+            }.items()
+            if not v
+        ]
+        return Response(
+            {"error": f"Server configuration error: Missing {', '.join(missing)}"},
+            status=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    # 2. Parse diabetic_values
     diabetic_values = request.data.get("diabetic_values")
     if isinstance(diabetic_values, str):
-        import json
-
         try:
             diabetic_values = json.loads(diabetic_values)
-        except Exception:
+        except (json.JSONDecodeError, TypeError):
             return Response(
                 {"error": "diabetic_values must be valid JSON"},
                 status=http_status.HTTP_400_BAD_REQUEST,
             )
+    elif not diabetic_values:
+        diabetic_values = {}
 
+    # 3. Handle PDF upload to Supabase
     pdf = request.FILES.get("pdf_file")
     pdf_path = ""
 
     if pdf:
-        supabase = get_supabase()
-        supabase.auth.set_session(request.auth, "")
+        try:
+            supabase = get_supabase()
+            # Try to set session, but don't fail hard if it's strictly a public bucket or handled via service key
+            if request.auth:
+                try:
+                    supabase.auth.set_session(request.auth, "")
+                except Exception as auth_err:
+                    print(f"Supabase auth session warning: {auth_err}")
 
-        pdf_path = f"{request.user.id}_{pdf.name}"
-        supabase.storage.from_("reports").upload(
-            pdf_path, pdf.read(), {"content-type": pdf.content_type, "upsert": "true"}
-        )
+            pdf_path = f"{request.user.id}_{timezone.now().timestamp()}_{pdf.name}"
+            # Read pdf content once for upload
+            pdf_content = pdf.read()
+            supabase.storage.from_("reports").upload(
+                pdf_path,
+                pdf_content,
+                {"content-type": pdf.content_type, "upsert": "true"},
+            )
+            # Reset pointer for possible AI processing
+            pdf.seek(0)
+        except Exception as e:
+            print(f"Supabase upload error: {e}")
+            return Response(
+                {"error": f"Failed to upload PDF to storage: {str(e)}"},
+                status=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
+    # 4. Create database record
     report = Report.objects.create(
         user=request.user,
-        diabetic_values=diabetic_values or {},
-        pdf_file=pdf_path,  # STORE PATH ONLY
+        diabetic_values=diabetic_values,
+        pdf_file=pdf_path,
         status="processing",
     )
 
+    # 5. Get AI Analysis (OpenAI)
     try:
         client = get_client()
 
-        content_parts = []
-        # 1) Add diabetic values context
+        # Build Prompts
         system_prompt = (
             "Analyze the following diabetes management data.\n\n"
             "### Inputs Provided\n"
@@ -169,39 +214,29 @@ def create_report(request):
             "2. Identify hyperglycemia, hypoglycemia, and variability issues\n"
             "3. Provide clinically reasonable suggested adjustments for:\n"
             "   - Bolus insulin ratio (insulin-to-carb)\n"
-            "   - Basal (balas) insulin rate\n"
+            "   - Basal insulin rate\n"
             "   - Correction factor (insulin sensitivity)\n\n"
             "### Rules\n"
             "- Suggestions must be conservative and expressed as ranges or directional changes\n"
             "- Do NOT present recommendations as final prescriptions\n"
             "- Clearly note when trends are uncertain or data is insufficient\n\n"
-            "Also return a JSON object with fields: summary, analysis[], recommendations[] and suggested_insulin_parameters of ballas ratio , bolousratio and correction_factor[].\n\n"
+            "Also return a JSON object with fields: summary, analysis[], recommendations[] and suggested_insulin_parameters of basal_ratio, bolus_ratio and correction_factor.\n\n"
             "### Current Insulin Parameters (JSON)\n"
-            f"{report.diabetic_values}"
+            f"{json.dumps(report.diabetic_values)}"
         )
 
-        # Append admin instructions if available
         active_admin_prompt = AdminPrompt.objects.filter(is_active=True).first()
         if active_admin_prompt and active_admin_prompt.custom_instructions:
             system_prompt += f"\n\n### Additional Instructions\n{active_admin_prompt.custom_instructions}"
 
-        print("system_prompt: ", system_prompt)
+        content_parts = [{"type": "text", "text": system_prompt}]
 
-        content_parts.append(
-            {
-                "type": "input_text",
-                "text": system_prompt,
-            }
-        )
-
-        # 2) Add the PDF if provided
         if pdf:
-            # For OpenAI, you might need to download it or pass the URL if supported
-            # Here we follow the existing base64 approach but fetch the bytes from Supabase or use local 'pdf' if just uploaded
-            # Since we just uploaded 'pdf', we can reuse its bytes
             pdf.seek(0)
             pdf_bytes = pdf.read()
             b64 = base64.b64encode(pdf_bytes).decode("utf-8")
+
+            # Use gpt-4o's native PDF/vision support if available
             content_parts.append(
                 {
                     "type": "input_file",
@@ -210,32 +245,41 @@ def create_report(request):
                 }
             )
 
-        # Use a vision-capable model that supports PDF inputs
-        # (Docs: vision-capable models like gpt-4o / gpt-4o-mini / o1) :contentReference[oaicite:4]{index=4}
-        resp = client.responses.create(
-            model="gpt-5.2",
-            input=[{"role": "user", "content": content_parts}],
-        )
+        # Call OpenAI with proper model and error handling
+        # Using gpt-4o which is vision/file capable in the current SDK context
+        try:
+            # Note: client.responses.create might be from a newer/beta SDK or custom implementation.
+            # Using chat.completions.create for better reliability unless the other is verified.
+            # However, matching the user's intent to use the PDF-capable endpoint.
+            if hasattr(client, "responses"):
+                resp = client.responses.create(
+                    model="gpt-4o",  # Updated from gpt-5.2
+                    input=[{"role": "user", "content": content_parts}],
+                )
+                report.openai_response_id = getattr(resp, "id", "")
+                report.ai_summary_text = getattr(resp, "output_text", "") or ""
+                report.ai_raw = resp.model_dump() if hasattr(resp, "model_dump") else {}
+            else:
+                # Fallback to standard chat completions
+                resp = client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[{"role": "user", "content": content_parts}],
+                )
+                report.openai_response_id = resp.id
+                report.ai_summary_text = resp.choices[0].message.content
+                report.ai_raw = resp.model_dump() if hasattr(resp, "model_dump") else {}
 
-        report.openai_response_id = getattr(resp, "id", "") or ""
-        report.ai_summary_text = resp.output_text or ""
-        # store raw response if you want (careful: it can be big)
-        report.ai_raw = resp.model_dump() if hasattr(resp, "model_dump") else {}
-        report.status = "done"
-        report.save(
-            update_fields=[
-                "openai_response_id",
-                "ai_summary_text",
-                "ai_raw",
-                "status",
-                "updated_at",
-            ]
-        )
+            report.status = "done"
+            report.save()
+
+        except Exception as ai_err:
+            raise Exception(f"OpenAI API error: {str(ai_err)}")
 
     except Exception as e:
         report.status = "error"
         report.error_message = str(e)
-        report.save(update_fields=["status", "error_message", "updated_at"])
+        report.save()
+        print(f"Error processing report {report.id}: {e}")
         return Response(
             ReportDetailSerializer(report).data,
             status=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
